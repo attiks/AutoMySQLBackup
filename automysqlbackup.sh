@@ -460,7 +460,6 @@ dbdump_data () {
   if [ -n "$USERNAME" ]; then
     mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT $OPT_DATA $1 $3 > $2
   else
-    echo "${NEWOPT} ${OPT_DATA} ${1} ${3} > ${2}"
     mysqldump $NEWOPT $OPT_DATA $1 $3 > $2
   fi
   return 0
