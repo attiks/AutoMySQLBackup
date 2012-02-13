@@ -70,7 +70,7 @@ TABLEEXCLUDE=""
 
 # List of wildcard table names for which to only back up the structure (not
 # the data). They'll be expanded to the proper form (db.table) automatically.
-# TABLENODATA="cache cache_% sessions search_% watchdog devel_% accesslog"
+TABLENODATA="cache cache_% sessions search_% watchdog devel_% accesslog"
 
 # Single file for each table, set to yes to use separate files
 SINGLEFILES="no"
