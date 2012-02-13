@@ -70,7 +70,10 @@ TABLEEXCLUDE=""
 
 # List of wildcard table names for which to only back up the structure (not
 # the data). They'll be expanded to the proper form (db.table) automatically.
-TABLENODATA="cache cache_% sessions search_% watchdog devel_% accesslog"
+# TABLENODATA="cache cache_% sessions search_% watchdog devel_% accesslog"
+
+# Single file for each table, set to yes to use separate files
+SINGLEFILES="no"
 
 # Include CREATE DATABASE in backup?
 CREATE_DATABASE=yes
@@ -413,30 +416,66 @@ exec 2> $LOGERR     # stderr replaced with file $LOGERR.
 
 # Database dump function
 dbdump () {
+  if [ "$SINGLEFILES" != "yes" ]; then
+    dbdump_combined $1 $2
+  else
+    if [ -n "$USERNAME" ]; then
+      mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT --no-data $1 > $2__ddl.sql
+      tables_found="`mysql --user=$USERNAME --password=$PASSWORD --host=$DBHOST --batch --skip-column-names -e "use $1; show tables;"`"
+    else
+      mysqldump $OPT --no-data $1 > $2__ddl.sql
+      tables_found="`mysql --batch --skip-column-names -e "use $1; show tables;"`"
+    fi
+    for table in $tables_found ; do
+      FNAME="${2}__${table}.sql"
+      dbdump_data $1 $FNAME $table
+    done
+  fi
+}
+
+dbdump_combined () {
 	if [ $1 = "information_schema" ] ; then
 		NEWOPT="--skip-opt ${OPT}"
 	else
 		NEWOPT="--opt $OPT"
 	fi
+  
+  if [ -n "$USERNAME" ]; then
+    mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT --no-data $1 > $2
+    mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT $OPT_DATA $1 >> $2
+  else
+    mysqldump $NEWOPT --no-data $1 > $2
+    mysqldump $NEWOPT $OPT_DATA $1 >> $2
+  fi
+  return 0
+}
 
-if [ -n "$USERNAME" ]; then
-  mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT --no-data $1 > $2
-  mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT $OPT_DATA $1 >> $2
-else
-  mysqldump $NEWOPT --no-data $1 > $2
-  mysqldump $NEWOPT $OPT_DATA $1 >> $2
-fi
-return 0
+dbdump_data () {
+	if [ $1 = "information_schema" ] ; then
+		NEWOPT="--skip-opt ${OPT}"
+	else
+		NEWOPT="--opt $OPT"
+	fi
+  
+  if [ -n "$USERNAME" ]; then
+    mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT $OPT_DATA $1 $3 > $2
+  else
+    echo "${NEWOPT} ${OPT_DATA} ${1} ${3} > ${2}"
+    mysqldump $NEWOPT $OPT_DATA $1 $3 > $2
+  fi
+  return 0
 }
 
 # Compression function plus latest copy
 SUFFIX=""
 compression () {
 if [ "$COMP" = "gzip" ]; then
-	gzip -f "$1"
+	gzip -f $1
 	echo
 	echo Backup Information for "$1"
-	gzip -l "$1.gz"
+  if [ "$SINGLEFILES" != "yes" ]; then
+    gzip -l "${1}.gz"
+  fi
 	SUFFIX=".gz"
 elif [ "$COMP" = "bzip2" ]; then
 	echo Compression information for "$1.bz2"
@@ -490,10 +529,10 @@ if [ "$SEPDIR" = "yes" ]; then # Check if CREATE DATABSE should be included in D
 	if [ "$CREATE_DATABASE" = "no" ]; then
 		OPT="$OPT --no-create-db"
 	else
-		OPT="$OPT --databases"
+		OPT="$OPT"
 	fi
 else
-	OPT="$OPT --databases"
+	OPT="$OPT"
 fi
 
 # Hostname for LOG information
@@ -548,7 +587,7 @@ echo ======================================================================
 			fi
 			echo Monthly Backup of $MDB...
 				dbdump "$MDB" "$BACKUPDIR/monthly/$MDB/${MDB}_$DATE.$M.$MDB.sql"
-				compression "$BACKUPDIR/monthly/$MDB/${MDB}_$DATE.$M.$MDB.sql"
+				compression "$BACKUPDIR/monthly/$MDB/${MDB}_$DATE.$M.$MDB.sql*"
 				BACKUPFILES="$BACKUPFILES $BACKUPDIR/monthly/$MDB/${MDB}_$DATE.$M.$MDB.sql$SUFFIX"
 			echo ----------------------------------------------------------------------
 		done
@@ -584,7 +623,7 @@ echo ======================================================================
 		eval rm -fv "$BACKUPDIR/weekly/$DB_week.$REMW.*" 
 		echo
 			dbdump "$DB" "$BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql"
-			compression "$BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql"
+			compression "$BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql*"
 			BACKUPFILES="$BACKUPFILES $BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql$SUFFIX"
 		echo ----------------------------------------------------------------------
 	
@@ -595,7 +634,7 @@ echo ======================================================================
 		eval rm -fv "$BACKUPDIR/daily/$DB/*.$DOW.sql.*" 
 		echo
 			dbdump "$DB" "$BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql"
-			compression "$BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql"
+			compression "$BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql*"
 			BACKUPFILES="$BACKUPFILES $BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql$SUFFIX"
 		echo ----------------------------------------------------------------------
 	fi
