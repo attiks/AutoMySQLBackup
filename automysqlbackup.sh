@@ -69,7 +69,7 @@ TABLEEXCLUDE=""
 
 # List of wildcard table names for which to only back up the structure (not
 # the data). They'll be expanded to the proper form (db.table) automatically.
-TABLENODATA=""
+TABLENODATA="cache cache_% sessions search_% watchdog devel_% accesslog"
 
 # Include CREATE DATABASE in backup?
 CREATE_DATABASE=yes
