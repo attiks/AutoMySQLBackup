@@ -25,7 +25,8 @@
 #=====================================================================
 
 # Username to access the MySQL server e.g. dbuser
-USERNAME=dbuser
+# Leave blank to use default credentials, only works for localhost
+USERNAME=
 
 # Username to access the MySQL server e.g. password
 PASSWORD=password
@@ -412,8 +413,13 @@ exec 2> $LOGERR     # stderr replaced with file $LOGERR.
 
 # Database dump function
 dbdump () {
-mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT --no-data $1 > $2
-mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT $OPT_DATA $1 >> $2
+if [ -n "$USERNAME" ]; then
+  mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT --no-data $1 > $2
+  mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT $OPT_DATA $1 >> $2
+else
+  mysqldump $OPT --no-data $1 > $2
+  mysqldump $OPT $OPT_DATA $1 >> $2
+fi
 return 0
 }
 
@@ -463,7 +469,11 @@ fi
 OPT_DATA=""
 if [ -n "$TABLENODATA" ]; then
     for table_wildcard in $TABLENODATA ; do
-        tables_found="`mysql --user=$USERNAME --password=$PASSWORD --host=$DBHOST --batch --skip-column-names -e "select CONCAT(table_schema, '.',  table_name) from information_schema.tables where table_name like '${table_wildcard}';"`"
+        if [ -n "$USERNAME" ]; then
+          tables_found="`mysql --user=$USERNAME --password=$PASSWORD --host=$DBHOST --batch --skip-column-names -e "select CONCAT(table_schema, '.',  table_name) from information_schema.tables where table_name like '${table_wildcard}';"`"
+        else
+          tables_found="`mysql --batch --skip-column-names -e "select CONCAT(table_schema, '.',  table_name) from information_schema.tables where table_name like '${table_wildcard}';"`"
+        fi
         for table in $tables_found ; do
           OPT_DATA="${OPT_DATA} --ignore-table=${table}"
         done
@@ -492,7 +502,11 @@ fi
 
 # If backing up all DBs on the server
 if [ "$DBNAMES" = "all" ]; then
-        DBNAMES="`mysql --user=$USERNAME --password=$PASSWORD --host=$DBHOST --batch --skip-column-names -e "show databases"| sed 's/ /%/g'`"
+  if [ -n "$USERNAME" ]; then
+    DBNAMES="`mysql --user=$USERNAME --password=$PASSWORD --host=$DBHOST --batch --skip-column-names -e "show databases"| sed 's/ /%/g'`"
+  else
+    DBNAMES="`mysql --batch --skip-column-names -e "show databases"| sed 's/ /%/g'`"
+  fi
 
 	# If DBs are excluded
 	for exclude in $DBEXCLUDE
