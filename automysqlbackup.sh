@@ -34,7 +34,7 @@ PASSWORD=password
 DBHOST=localhost
 
 # List of DBNAMES for Daily/Weekly Backup e.g. "DB1 DB2 DB3"
-DBNAMES="DB1 DB2 DB3"
+DBNAMES="all"
 
 # Backup directory location e.g /backups
 BACKUPDIR="/backups"
