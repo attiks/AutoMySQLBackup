@@ -413,12 +413,18 @@ exec 2> $LOGERR     # stderr replaced with file $LOGERR.
 
 # Database dump function
 dbdump () {
+	if [ $1 = "information_schema" ] ; then
+		NEWOPT="--skip-opt ${OPT}"
+	else
+		NEWOPT="--opt $OPT"
+	fi
+
 if [ -n "$USERNAME" ]; then
-  mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT --no-data $1 > $2
-  mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT $OPT_DATA $1 >> $2
+  mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT --no-data $1 > $2
+  mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT $OPT_DATA $1 >> $2
 else
-  mysqldump $OPT --no-data $1 > $2
-  mysqldump $OPT $OPT_DATA $1 >> $2
+  mysqldump $NEWOPT --no-data $1 > $2
+  mysqldump $NEWOPT $OPT_DATA $1 >> $2
 fi
 return 0
 }
