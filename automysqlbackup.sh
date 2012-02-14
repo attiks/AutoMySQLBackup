@@ -84,7 +84,7 @@ SEPDIR=yes
 # Which day do you want weekly backups? (1 to 7 where 1 is Monday)
 DOWEEKLY=6
 
-# Choose Compression type. (gzip or bzip2)
+# Choose Compression type. (gzip or bzip2 or git)
 COMP=gzip
 
 # Compress communications between backup server and MySQL server?
@@ -371,6 +371,11 @@ if [ "$MAX_ALLOWED_PACKET" ];
 		OPT="$OPT --max_allowed_packet=$MAX_ALLOWED_PACKET"
 	fi
 
+# Add --skip-extended-insert to make it easier for git
+if [ "$COMP" = "git" ]; then
+	OPT="$OPT --compact --skip-extended-insert"
+fi
+
 # Create required directories
 if [ ! -e "$BACKUPDIR" ]		# Check Backup Directory exists.
 	then
@@ -420,12 +425,16 @@ dbdump () {
     dbdump_combined $1 $2
   else
     if [ -n "$USERNAME" ]; then
-      mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT --no-data $1 > $2__ddl.sql
+      mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $OPT --no-data --add-drop-table --databases $1 > "$2___ddl.sql"
       tables_found="`mysql --user=$USERNAME --password=$PASSWORD --host=$DBHOST --batch --skip-column-names -e "use $1; show tables;"`"
     else
-      mysqldump $OPT --no-data $1 > $2__ddl.sql
+      mysqldump $OPT --no-data --add-drop-table --databases $1 > "$2___ddl.sql"
       tables_found="`mysql --batch --skip-column-names -e "use $1; show tables;"`"
     fi
+    echo "cat *___ddl.sql | mysql" > $2__restore.sh
+    echo "rm  *___ddl.sql | mysql" >> $2__restore.sh
+    echo "cat *.sql | mysql" >> $2__restore.sh
+    
     for table in $tables_found ; do
       FNAME="${2}__${table}.sql"
       dbdump_data $1 $FNAME $table
@@ -456,12 +465,16 @@ dbdump_data () {
 	else
 		NEWOPT="--opt $OPT"
 	fi
+  NEWOPT="--no-create-info --no-create-db ${NEWOPT}"
   
+  echo "use $1;" > $2
+  echo "SET FOREIGN_KEY_CHECKS=0;" >> $2
   if [ -n "$USERNAME" ]; then
     mysqldump --user=$USERNAME --password=$PASSWORD --host=$DBHOST $NEWOPT $OPT_DATA $1 $3 > $2
   else
-    mysqldump $NEWOPT $OPT_DATA $1 $3 > $2
+    mysqldump $NEWOPT $OPT_DATA $1 $3 >> $2
   fi
+  echo "SET FOREIGN_KEY_CHECKS=0;" >> $2
   return 0
 }
 
@@ -476,6 +489,10 @@ if [ "$COMP" = "gzip" ]; then
     gzip -l "${1}.gz"
   fi
 	SUFFIX=".gz"
+elif [ "$COMP" = "git" ]; then
+	echo
+	echo Backup Information for "$1"
+  (cd "$1" && git add *.sql *.sh && git commit -m "backup created on ${DATE}" && cd -)
 elif [ "$COMP" = "bzip2" ]; then
 	echo Compression information for "$1.bz2"
 	bzip2 -f -v $1 2>&1
@@ -602,41 +619,51 @@ echo ======================================================================
 		then
 		mkdir -p "$BACKUPDIR/daily/$DB"
 	fi
+
+  if [ "$COMP" = "git" ]; then
+    (cd "$BACKUPDIR/daily/$DB" && git init && cd -)
+  fi
 	
 	if [ ! -e "$BACKUPDIR/weekly/$DB" ]		# Check Weekly DB Directory exists.
 		then
 		mkdir -p "$BACKUPDIR/weekly/$DB"
 	fi
-	
-	# Weekly Backup
-	if [ $DNOW = $DOWEEKLY ]; then
-		echo Weekly Backup of Database \( $DB \)
-		echo Rotating 5 weeks Backups...
-			if [ "$W" -le 05 ];then
-				REMW=`expr 48 + $W`
-			elif [ "$W" -lt 15 ];then
-				REMW=0`expr $W - 5`
-			else
-				REMW=`expr $W - 5`
-			fi
-		eval rm -fv "$BACKUPDIR/weekly/$DB_week.$REMW.*" 
-		echo
-			dbdump "$DB" "$BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql"
-			compression "$BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql*"
-			BACKUPFILES="$BACKUPFILES $BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql$SUFFIX"
-		echo ----------------------------------------------------------------------
-	
-	# Daily Backup
-	else
-		echo Daily Backup of Database \( $DB \)
-		echo Rotating last weeks Backup...
-		eval rm -fv "$BACKUPDIR/daily/$DB/*.$DOW.sql.*" 
-		echo
-			dbdump "$DB" "$BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql"
-			compression "$BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql*"
-			BACKUPFILES="$BACKUPFILES $BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql$SUFFIX"
-		echo ----------------------------------------------------------------------
-	fi
+
+  # Git only uses daily dirs
+  if [ "$COMP" = "git" ]; then
+    dbdump "$DB" "$BACKUPDIR/daily/$DB/${DB}.sql"
+    compression "$BACKUPDIR/daily/$DB/"
+  else
+    # Weekly Backup
+    if [ $DNOW = $DOWEEKLY ]; then
+      echo Weekly Backup of Database \( $DB \)
+      echo Rotating 5 weeks Backups...
+        if [ "$W" -le 05 ];then
+          REMW=`expr 48 + $W`
+        elif [ "$W" -lt 15 ];then
+          REMW=0`expr $W - 5`
+        else
+          REMW=`expr $W - 5`
+        fi
+      eval rm -fv "$BACKUPDIR/weekly/$DB_week.$REMW.*" 
+      echo
+        dbdump "$DB" "$BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql"
+        compression "$BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql*"
+        BACKUPFILES="$BACKUPFILES $BACKUPDIR/weekly/$DB/${DB}_week.$W.$DATE.sql$SUFFIX"
+      echo ----------------------------------------------------------------------
+    
+    # Daily Backup
+    else
+      echo Daily Backup of Database \( $DB \)
+      echo Rotating last weeks Backup...
+      eval rm -fv "$BACKUPDIR/daily/$DB/*.$DOW.sql.*" 
+      echo
+        dbdump "$DB" "$BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql"
+        compression "$BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql*"
+        BACKUPFILES="$BACKUPFILES $BACKUPDIR/daily/$DB/${DB}_$DATE.$DOW.sql$SUFFIX"
+      echo ----------------------------------------------------------------------
+    fi
+  fi
 	done
 echo Backup End `date`
 echo ======================================================================

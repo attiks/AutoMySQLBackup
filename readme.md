@@ -5,6 +5,8 @@
 * added support for default credentials
 * added fix for problem with information_schema, based on http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=550037
 * added support for table per file backup, avoids locking the whole database
+* added support for git (use at your own risk)
+* added restore.sh if you're using a table per file
 
 ## TODO
 * https://gist.github.com/1817036
